@@ -1,0 +1,76 @@
+# File: .github/workflows/ci-and-loadproject.yml
+name: CI & Remote LoadProject
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  PROJECT_NAME: "autobots"
+
+jobs:
+  ci:
+    name: Deno CI Checks (on ${{ github.ref_name }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 'v2.x'
+
+      - name: Cache Deno deps
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/deno
+          key: ${{ runner.os }}-deno-${{ hashFiles('**/*.ts', '**/*.js', 'deno.json') }}
+          restore-keys: |
+            ${{ runner.os }}-deno-
+
+      - name: Check formatting
+        run: deno fmt --check
+
+      - name: Lint code
+        run: deno lint
+
+      - name: Run tests
+        run: deno test --fail-fast
+
+      - name: CodeQL security scan
+        uses: github/codeql-action/analyze@v2
+
+  loadproject:
+    name: Remote LoadProject on JSphere
+    needs: ci
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        include:
+          - instance_id: qa
+            url: ${{ secrets.QA_INSTANCE_URL }}
+          - instance_id: staging
+            url: ${{ secrets.STAGING_INSTANCE_URL }}
+          - instance_id: prod
+            url: ${{ secrets.PROD_INSTANCE_URL }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install JSphere CLI
+        run: |
+          # TODO: replace with your real install command, e.g.:
+          # npm install -g @digital-emergence/js-cli
+          echo "Installing JSphere CLI..."
+
+      - name: Load project on ${{ matrix.instance_id }} instance
+        env:
+          AUTH_KEY: ${{ secrets.JSPHERE_AUTH_KEY }}
+        run: |
+          js remote "${{ matrix.url }}/@cmd/loadproject?projectName=${{ env.PROJECT_NAME }}" "${AUTH_KEY}"
